@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nối Từ Tiếng Việt</title>
+
+<style>
+:root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel2: #334155;
+    --text: #f8fafc;
+    --accent: #3b82f6;
+    --success: #22c55e;
+    --danger: #ef4444;
+}
+
+.light {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --panel2: #e2e8f0;
+    --text: #0f172a;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial;
+    background: var(--bg);
+    color: var(--text);
+    transition: 0.3s;
+}
+
+.container {
+    display: grid;
+    grid-template-columns: 320px 1fr 320px;
+    height: 100vh;
+}
+
+.panel {
+    background: var(--panel);
+    padding: 20px;
+    border-right: 1px solid #475569;
+    overflow-y: auto;
+}
+
+.center {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    height: 100vh;
+    overflow: hidden;
+    position: relative;
+}
+
+h2 {
+    margin-top: 0;
+}
+
+input, textarea {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+}
+
+button {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+}
+
+input, textarea {
+    background: var(--panel2);
+    color: var(--text);
+}
+
+button {
+    cursor: pointer;
+    background: var(--accent);
+    color: white;
+    font-weight: bold;
+}
+
+button:hover {
+    opacity: 0.9;
+}
+
+.chat-box {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    padding-bottom: 100px;
+}
+
+.msg {
+    margin-bottom: 12px;
+    padding: 10px;
+    border-radius: 10px;
+    max-width: 80%;
+}
+
+.user {
+    background: var(--accent);
+    margin-left: auto;
+}
+
+.bot {
+    background: var(--panel2);
+}
+
+.input-area {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    gap: 10px;
+    padding: 15px;
+    background: var(--panel);
+    border-top: 1px solid #475569;
+}
+
+.input-area input {
+    flex: 1;
+    margin-top: 0;
+}
+
+.input-area button {
+    width: 90px;
+    min-width: 90px;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+
+.stat {
+    background: var(--panel2);
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 10px;
+}
+
+.green {
+    color: var(--success);
+}
+
+.red {
+    color: var(--danger);
+}
+
+.toggle {
+    margin-top: 15px;
+    background: #64748b;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- LEFT -->
+    <div class="panel">
+        <h2>Cấu hình</h2>
+
+        <label>Chọn từ điển (.txt / .json)</label>
+        <input type="file" id="dictFile" accept=".txt,.json">
+
+        <label>Depth Alpha-Beta</label>
+        <input type="number" id="depth" value="4" min="1" max="10">
+
+        <button onclick="loadDictionary()">Tải từ điển</button>
+		<button onclick="botFirstMove()">Bot đi trước</button>
+		<button onclick="resetGame()">Reset Game</button>
+
+        <button class="toggle" onclick="toggleTheme()">Dark / Light</button>
+
+        <div class="stat">
+            <b>Trạng thái:</b>
+            <div id="dictStatus" class="red">Chưa tải từ điển</div>
+        </div>
+    </div>
+
+    <!-- CENTER -->
+    <div class="center">
+
+        <div class="chat-box" id="chatBox"></div>
+
+        <div class="input-area">
+            <input
+				type="text"
+				id="wordInput"
+				placeholder="Nhập cụm từ cần nối, ví dụ: bắt đầu"
+			>
+            <button onclick="sendWord()">Gửi</button>
+        </div>
+
+    </div>
+
+    <!-- RIGHT -->
+    <div class="panel">
+        <h2>Thông số Bot</h2>
+
+        <div class="stat">
+            Nodes searched: <span id="nodes">0</span>
+        </div>
+
+        <div class="stat">
+            Time: <span id="time">0 ms</span>
+        </div>
+
+        <div class="stat">
+            Best move: <span id="bestMove">-</span>
+        </div>
+
+        <div class="stat">
+            Depth: <span id="depthDisplay">4</span>
+        </div>
+		
+		<div class="stat">
+			TT Hits: <span id="ttHits">0</span>
+		</div>
+
+		<div class="stat">
+			TT Size: <span id="ttSize">0</span>
+		</div>
+
+        <div class="stat">
+            Dictionary size: <span id="dictSize">0</span>
+        </div>
+
+        <h2>Lịch sử</h2>
+        <textarea id="history" rows="15" readonly></textarea>
+    </div>
+
+</div>
+
+<script>
+let NODE = 0;
+let ttHits = 0;
+
+const EXACT = 0;
+const LOWER = 1;
+const UPPER = 2;
+
+const PV_TABLE = new Map();
+const TT = new Map();
+let lastBotMove = null;
+let gameHistory = createHistory();
+
+function createHistory() {
+    return new Map();
+}
+
+function addHis(head, tail, his) {
+    (his[head] ??= []).push(tail);
+}
+
+function delHis(head, tail, his) {
+    if (!his[head]) return;
+
+    his[head].pop();
+
+    if (!his[head].length) {
+        delete his[head];
+    }
+}
+
+function getNextKey(word) {
+    return word.trim().split(/\s+/).pop().toLowerCase();
+}
+
+function toggleTheme() {
+    document.body.classList.toggle("light");
+}
+
+function log(msg) {
+    const history = document.getElementById("history");
+    history.value += msg + "\\n";
+    history.scrollTop = history.scrollHeight;
+}
+
+function addMessage(text, type) {
+    const box = document.getElementById("chatBox");
+    const div = document.createElement("div");
+    div.className = "msg " + type;
+    div.innerText = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function loadDictionary() {
+    const file = document.getElementById("dictFile").files[0];
+    if (!file) return alert("Chọn file!");
+
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        const content = e.target.result;
+
+        try {
+            if (file.name.endsWith(".json")) {
+                dictionary = JSON.parse(content);
+            } else {
+                dictionary = parseTXT(content);
+            }
+
+            loaded = true;
+
+            document.getElementById("dictStatus").innerHTML = "Đã tải";
+            document.getElementById("dictStatus").className = "green";
+
+            document.getElementById("dictSize").innerText =
+				Object.values(dictionary)
+				.reduce((sum, arr) => sum + arr.length, 0);
+
+            log("Từ điển tải thành công");
+			sortDictionary();
+        } catch(err) {
+            alert("Lỗi đọc file");
+            console.error(err);
+        }
+    };
+
+    reader.readAsText(file, "UTF-8");
+}
+
+function parseTXT(content) {
+    const dict = {};
+
+    const lines = content
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+    for (const line of lines) {
+        const parts = line.split(/\s+/);
+
+        if (parts.length < 2) continue;
+
+        const key = parts[0].toLowerCase();
+        const value = parts.slice(1).join(" ").toLowerCase();
+
+        if (!dict[key]) {
+            dict[key] = [];
+        }
+
+        dict[key].push(value);
+    }
+
+    return dict;
+}
+function showDictionaryStats() {
+    const top = Object.entries(dictionary)
+        .slice(0, 10)
+        .map(([k, v]) => `${k}: ${v.length}`)
+        .join("\n");
+
+    document.getElementById("history").value +=
+        "\n--- Top key ---\n" + top + "\n";
+}
+
+function sortDictionary(desc = false) {
+    const entries = Object.entries(dictionary);
+
+    entries.sort((a, b) => {
+        return desc
+            ? b[1].length - a[1].length
+            : a[1].length - b[1].length;
+    });
+
+    dictionary = Object.fromEntries(entries);
+
+    log("Đã sắp xếp từ điển theo số phần tử mỗi key");
+
+    showDictionaryStats();
+}
+
+function isTerminal(word) {
+    return generateMoves(word).length === 0;
+}
+
+function isLose(head, his) {
+    return generateMoves(head, his).length === 0;
+}
+
+function evaluate(word) {
+    const moves = generateMoves(word);
+
+    if (moves.length === 0) return -1000;
+
+    return 0;
+}
+
+function getPV(head, depth) {
+    const pv = [];
+    let current = head;
+
+    for (let i = depth; i > 0; i--) {
+        const key = current + "|" + i;
+
+        if (!PV_TABLE.has(key)) break;
+
+        current = PV_TABLE.get(key);
+        pv.push(current);
+    }
+
+    return pv;
+}
+
+function sendWord() {
+    if (!loaded) {
+        alert("Chưa tải từ điển");
+        return;
+    }
+
+    const input = document.getElementById("wordInput");
+    const word = input.value.trim();
+
+    if (!word) return;
+
+    if (lastBotMove) {
+        const expected = getNextKey(lastBotMove);
+        const actual = word.split(/\s+/)[0].toLowerCase();
+
+        if (actual !== expected) {
+            input.value = "";
+            return;
+        }
+    }
+
+    const parts = word.split(/\s+/);
+
+    if (parts.length < 2) return;
+
+    const head = parts[0].toLowerCase();
+    const tail = parts.slice(1).join(" ").toLowerCase();
+
+    // thêm vào lịch sử
+    addHis(head, tail, gameHistory);
+
+    addMessage(word, "user");
+    log("User: " + word);
+
+    input.value = "";
+	
+	botMove(word);
+}
+
+function generateMoves(head, his) {
+    const usedWords = new Set();
+
+    for (const h in his) {
+        for (const t of his[h]) {
+            usedWords.add(t);
+        }
+    }
+
+    let moves = (dictionary[head] || [])
+        .filter(x => !usedWords.has(x));
+
+    const localUsed = his[head] || [];
+    const key = head + "|" + localUsed.join(",");
+
+    if (TT.has(key)) {
+        const best = TT.get(key).best;
+
+        if (best && moves.includes(best)) {
+            moves = [
+                best,
+                ...moves.filter(x => x !== best)
+            ];
+        }
+    }
+
+    return moves;
+}
+
+function alphaBeta(head, his, depth, alpha, beta) {
+    NODE++;
+
+    const used = his[head] || [];
+    const key = head + "|" + used.join(",");
+
+    if (TT.has(key)) {
+        const entry = TT.get(key);
+
+        ttHits++;
+
+        if (entry.depth >= depth) {
+            if (entry.flag === EXACT) return entry.score;
+            if (entry.flag === LOWER) alpha = Math.max(alpha, entry.score);
+            if (entry.flag === UPPER) beta = Math.min(beta, entry.score);
+
+            if (alpha >= beta) return entry.score;
+        }
+    }
+
+    if (isLose(head, his)) {
+        return -100 - depth;
+    }
+
+    if (depth === 0) {
+        return generateMoves(head, his).length;
+    }
+
+    const originalAlpha = alpha;
+    let best = null;
+
+    for (const tail of generateMoves(head, his)) {
+        addHis(head, tail, his);
+
+        const score = -alphaBeta(
+            tail,
+            his,
+            depth - 1,
+            -beta,
+            -alpha
+        );
+
+        delHis(head, tail, his);
+
+        if (score > alpha) {
+            alpha = score;
+            best = tail;
+
+            PV_TABLE.set(head + "|" + depth, tail);
+        }
+
+        if (alpha >= beta) break;
+    }
+
+    let flag = EXACT;
+
+    if (alpha <= originalAlpha) flag = UPPER;
+    else if (alpha >= beta) flag = LOWER;
+
+    TT.set(key, {
+        depth,
+        score: alpha,
+        flag,
+        best
+    });
+
+    return alpha;
+}
+
+function findBestMove(word, depth) {
+    NODE = 0;
+    ttHits = 0;
+
+    TT.clear();
+    PV_TABLE.clear();
+
+    const history = gameHistory;
+    const head = getNextKey(word);
+
+    let bestMove = null;
+    let bestScore = -9999;
+
+    const moves = generateMoves(head, history);
+
+    for (const tail of moves) {
+        if (generateMoves(tail, history).length === 0) {
+            return `${head} ${tail}`;
+        }
+
+        addHis(head, tail, history);
+
+        const score = -alphaBeta(
+            tail,
+            history,
+            depth - 1,
+            -9999,
+            9999
+        );
+
+        delHis(head, tail, history);
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = tail;
+
+            PV_TABLE.set(head + "|" + depth, tail);
+        }
+    }
+
+    if (!bestMove) return null;
+
+    return `${head} ${bestMove}`;
+}
+
+function botMove(word) {
+    const start = performance.now();
+
+    const depth = parseInt(
+        document.getElementById("depth").value
+    );
+
+    document.getElementById("depthDisplay").innerText = depth;
+
+    const reply = findBestMove(word, depth);
+
+    const end = performance.now();
+
+    document.getElementById("nodes").innerText = NODE;
+    document.getElementById("ttHits").innerText = ttHits;
+    document.getElementById("ttSize").innerText = TT.size;
+    document.getElementById("time").innerText =
+        (end - start).toFixed(2) + " ms";
+
+    if (!reply) {
+        addMessage("Bot thua!", "bot");
+        return;
+    }
+
+    document.getElementById("bestMove").innerText = reply;
+
+    addMessage(reply, "bot");
+    log("Bot: " + reply);
+	lastBotMove = reply;
+	const parts = reply.split(/\s+/);
+	const head = parts[0].toLowerCase();
+	const tail = parts.slice(1).join(" ").toLowerCase();
+
+	addHis(head, tail, gameHistory);
+	
+	const nextKey = getNextKey(reply);
+
+	if (!dictionary[nextKey] || generateMoves(nextKey, gameHistory).length === 0) {
+		addMessage("Bạn thua! Hết từ nối.", "bot");
+		log("Bot thắng");
+
+		lastBotMove = null;
+		return;
+	}
+
+    const pv = getPV(getNextKey(word), depth);
+
+    log("PV: " + pv.join(" → "));
+}
+
+function botFirstMove() {
+    if (!loaded) {
+        alert("Chưa tải từ điển");
+        return;
+    }
+
+    if (lastBotMove) return;
+
+    const keys = Object.keys(dictionary);
+
+    if (!keys.length) return;
+
+    const head =
+        keys[Math.floor(Math.random() * keys.length)];
+
+    const tails = dictionary[head];
+
+    if (!tails.length) return;
+
+    const tail =
+        tails[Math.floor(Math.random() * tails.length)];
+
+    const move = `${head} ${tail}`;
+
+    addMessage(move, "bot");
+    log("Bot đi trước: " + move);
+
+    lastBotMove = move;
+
+    addHis(head, tail, gameHistory);
+
+    document.getElementById("bestMove").innerText = move;
+}
+
+function findResponse(word) {
+    const last = word.split(" ").pop().toLowerCase();
+
+    if (dictionary[last] && dictionary[last].length > 0) {
+        return last + " " +
+            dictionary[last][
+                Math.floor(Math.random() * dictionary[last].length)
+            ];
+    }
+
+    return "Bot bí!";
+}
+
+function resetGame(full = false) {
+	gameHistory = createHistory();
+	lastBotMove = null;
+	lastBotMove = null;
+    NODE = 0;
+    ttHits = 0;
+
+    TT.clear();
+    PV_TABLE.clear();
+
+    document.getElementById("chatBox").innerHTML = "";
+    document.getElementById("history").value = "";
+
+    document.getElementById("nodes").innerText = 0;
+    document.getElementById("ttHits").innerText = 0;
+    document.getElementById("ttSize").innerText = 0;
+    document.getElementById("time").innerText = "0 ms";
+    document.getElementById("bestMove").innerText = "-";
+
+    document.getElementById("wordInput").value = "";
+
+    if (full) {
+        dictionary = {};
+        loaded = false;
+
+        document.getElementById("dictStatus").innerText =
+            "Chưa tải từ điển";
+
+        document.getElementById("dictSize").innerText = 0;
+    }
+
+    log("Đã reset trò chơi");
+}
+
+document.getElementById("wordInput")
+.addEventListener("keypress", function(e) {
+    if (e.key === "Enter") {
+        sendWord();
+    }
+});
+</script>
+
+</body>
+</html>
