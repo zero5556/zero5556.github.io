@@ -360,6 +360,7 @@ function parseTXT(content) {
 }
 function showDictionaryStats() {
     const top = Object.entries(dictionary)
+        .sort((a, b) => b[1].length - a[1].length)
         .slice(0, 10)
         .map(([k, v]) => `${k}: ${v.length}`)
         .join("\n");
